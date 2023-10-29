@@ -73,6 +73,26 @@ pub async fn read_quotes(
     }
 }
 
+pub async fn read_single_quote(
+    extract::State(pool): extract::State<PgPool>,
+    extract::Path(id): extract::Path<uuid::Uuid>,
+) -> Result<axum::Json<Quote>, http::StatusCode> {
+    let res = sqlx::query_as::<_, Quote>(
+        r#"
+        SELECT * FROM queries
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await;
+
+    match res {
+        Ok(quote) => Ok(axum::Json(quote)),
+        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
 pub async fn update_quote(
     extract::State(pool): extract::State<PgPool>,
     extract::Path(id): extract::Path<uuid::Uuid>,
