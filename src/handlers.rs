@@ -1,8 +1,8 @@
-use axum::{http, extract};
+use axum::{extract, http};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 
-#[derive(Serialize)]
+#[derive(Serialize, FromRow)]
 pub struct Quote {
     id: uuid::Uuid,
     book: String,
@@ -19,7 +19,7 @@ impl Quote {
             book,
             quote,
             inserted_at: now,
-            updated_at: now
+            updated_at: now,
         }
     }
 }
@@ -35,9 +35,40 @@ pub async fn health() -> http::StatusCode {
 }
 
 pub async fn create_quote(
-    extract::State(pool): extract::State<PgPool>
+    extract::State(pool): extract::State<PgPool>,
     axum::Json(payload): axum::Json<CreateQuote>,
-) -> http::StatusCode {
-    println!("{:?}", payload);
-    http::StatusCode::CREATED
+) -> Result<(http::StatusCode, axum::Json<Quote>), http::StatusCode> {
+    let quote = Quote::new(payload.book, payload.quote);
+
+    let res = sqlx::query(
+        r#"
+        INSERT INTO quotes (id, book, quote, inserted_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
+    "#,
+    )
+    .bind(&quote.id)
+    .bind(&quote.book)
+    .bind(&quote.quote)
+    .bind(&quote.inserted_at)
+    .bind(&quote.updated_at)
+    .execute(&pool)
+    .await;
+
+    match res {
+        Ok(_) => Ok((http::StatusCode::CREATED, axum::Json(quote))),
+        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+pub async fn read_quotes(
+    extract::State(pool): extract::State<PgPool>,
+) -> Result<axum::Json<Vec<Quote>>, http::StatusCode> {
+    let res = sqlx::query_as::<_, Quote>("SELECT * FROM quotes")
+        .fetch_all(&pool)
+        .await;
+
+    match res {
+        Ok(quotes) => Ok(axum::Json(quotes)),
+        Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
